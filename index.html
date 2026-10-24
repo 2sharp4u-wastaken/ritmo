@@ -195,6 +195,8 @@ canvas.chart{width:100%;height:200px;display:block}
 .notice.err{background:#FFE1E8}
 
 #confetti{position:fixed;inset:0;pointer-events:none;z-index:50}
+.wizcancel{position:fixed;top:calc(10px + env(safe-area-inset-top,0px));left:max(12px,env(safe-area-inset-left,0px));z-index:50;min-height:44px;padding:8px 16px;font-size:16px}
+body.wiz #app{padding-top:calc(66px + env(safe-area-inset-top,0px))}
 .toast{position:fixed;left:50%;bottom:calc(22px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 20px;border-radius:999px;font-family:var(--f-display);z-index:60;max-width:calc(100% - 32px);text-align:center}
 .overlay{position:fixed;inset:0;background:rgba(21,32,61,.55);display:flex;align-items:center;justify-content:center;z-index:40;padding:16px}
 .overlay .card{max-width:420px;width:100%;display:flex;flex-direction:column;gap:12px}
@@ -205,6 +207,7 @@ canvas.chart{width:100%;height:200px;display:block}
 <canvas id="confetti"></canvas>
 <main id="app" aria-live="polite"></main>
 <div class="toast" id="toast" hidden></div>
+<button class="btn wizcancel" id="wizCancel" hidden>✕ ביטול</button>
 <noscript><p style="padding:20px">האפליקציה צריכה JavaScript כדי לעבוד.</p></noscript>
 <script type="module" src="js/main.js"></script>
 </body>

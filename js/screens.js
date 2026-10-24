@@ -30,7 +30,8 @@ function picker() {
 }
 
 // ---------- onboarding ----------
-async function onboarding(existing) {
+async function onboarding(existing, backTo = null) {
+  wizardCancel(store.all().some(x => x.onboarded && x.id !== existing?.id), backTo);
   const draft = existing ? null : { name: '', avatar: AVATARS[0], surface: 'pad', headphones: false };
   // 1. hello (first gesture unlocks audio and speech)
   if (!existing) {
@@ -79,12 +80,18 @@ async function onboarding(existing) {
     $('#micErr').innerHTML = micErrorHTML(r.reason);
   }
   await calibrationFlow(p);
-  p.onboarded = true; store.save();
+  p.onboarded = true; store.save(); wizardCancel(false);
   render(`${coachHTML('', true)}<div class="card col center"><h2>מוכנים!</h2><p>כל יום אימון קצר. אני מחליט מה לתרגל, ואתה רק מתופף.</p>
     <div class="row" style="justify-content:center"><button class="btn primary huge" id="go">לאימון הראשון</button></div></div>`);
   say(`מוכנים, ${p.name}! כל יום אימון קצר. אני מחליט מה מתרגלים, ואתה רק מתופף.`, { mood: 'cheer' });
   await new Promise(r => $('#go').onclick = r);
   runSession(p, home);
+}
+// The wizard's ✕ button, shown only when there's another drummer to go back to. It sits outside #app so the
+// calibration screens keep it too, and it reloads so the mic and any calibration step still running stop.
+function wizardCancel(on, backTo) {
+  const b = $('#wizCancel'); b.hidden = !on; document.body.classList.toggle('wiz', on);
+  b.onclick = () => { const p = store.active(); if (p && !p.onboarded) store.remove(p.id); store.setActive(backTo); location.reload(); };
 }
 function choose(title, opts, line) {
   render(`${coachHTML(title)}<div class="choice">${opts.map(([v, em, t, s]) => `<button data-v="${v}"><span class="em">${em}</span>${t}<small>${s}</small></button>`).join('')}</div>`);
@@ -244,7 +251,7 @@ function settings(p, el) {
   $('#vol').oninput = e => { S.volume = +e.target.value; audio.setVolume(S.volume); store.save(); };
   $('#recal').onclick = async () => { await audio.init(); await calibrationFlow(p, { fromParents: true }); parents('settings'); };
   $('#saveName').onclick = () => { const v = $('#rn').value.trim(); if (v) { p.name = v; store.save(); toast('נשמר'); } };
-  $('#addKid').onclick = () => { store.setActive(null); onboarding(); };
+  $('#addKid').onclick = () => { store.setActive(null); onboarding(undefined, p.id); };
   $('#switch').onclick = () => { store.setActive(null); picker(); };
   $('#exp').onclick = () => { const blob = new Blob([store.exportAll()], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `ritmo-backup-${store.dayKey()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); };
   $('#imp').onchange = async e => { const f = e.target.files[0]; if (!f) return; try { store.importAll(await f.text()); toast('הגיבוי נטען'); route(); } catch (err) { toast('הקובץ לא תקין'); } };

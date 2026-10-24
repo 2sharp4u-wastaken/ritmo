@@ -46,6 +46,8 @@ function pickVoice() {
 }
 try { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; } catch (e) {}
 export function hasHebrewVoice() { pickVoice(); return !!heVoice; }
+// Browsers refuse speech until the first tap on the page. Until then the line is only shown, and that tap speaks it.
+let speechLocked = !(navigator.userActivation?.hasBeenActive ?? true);
 export function stopSpeaking() { try { speechSynthesis.cancel(); } catch (e) {} const m = $('#mascot'); if (m) m.classList.remove('talking'); }
 
 // Shows the line in the bubble and speaks it. Resolves when finished (or a reading-time fallback).
@@ -55,7 +57,7 @@ export function say(text, opts = {}) {
   const again = $('#sayAgain'); if (again) again.onclick = () => say(lastLine);
   if (opts.mood !== undefined) mood(opts.mood);
   const fallback = Math.min(9000, 900 + text.length * 55);
-  if (!voiceCfg.on || !('speechSynthesis' in window)) return sleep(opts.wait === false ? 0 : Math.min(fallback, 2500));
+  if (!voiceCfg.on || speechLocked || !('speechSynthesis' in window)) return sleep(opts.wait === false ? 0 : Math.min(fallback, 2500));
   pickVoice();
   return new Promise(res => {
     let done = false; const finish = () => { if (done) return; done = true; const m = $('#mascot'); if (m) m.classList.remove('talking'); res(); };
@@ -101,7 +103,9 @@ export function confirmBox(text, yes = 'כן', no = 'ביטול') {
 }
 
 // A tap that lands while the coach is still talking is remembered, and cuts the speech.
-document.addEventListener('click', e => { const b = e.target.closest('button'); if (b) { b.dataset.pressed = '1'; if (b.id === 'play' || b.id === 'next' || b.id === 'go') stopSpeaking(); } }, true);
+document.addEventListener('click', e => {
+  if (speechLocked) { speechLocked = false; if (lastLine) say(lastLine); else try { speechSynthesis.speak(new SpeechSynthesisUtterance(' ')); } catch (err) {} }
+  const b = e.target.closest('button'); if (b) { b.dataset.pressed = '1'; if (b.id === 'play' || b.id === 'next' || b.id === 'go') stopSpeaking(); } }, true);
 
 // ---------- wake lock ----------
 let wake = null;
