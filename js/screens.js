@@ -4,7 +4,7 @@ import { SKILLS, UNITS, BELTS, SKILL_BY_ID } from './curriculum.js';
 import { planSession, targetOf, startOf } from './coach.js';
 import { TIPS } from './grader.js';
 import * as store from './store.js';
-import { render, coachHTML, say, mood, $, $$, esc, toast, confirmBox, setVoice, hasHebrewVoice, stickHTML } from './ui.js';
+import { render, coachHTML, say, mood, $, $$, esc, toast, confirmBox, setVoice, hasHebrewVoice, hebrewVoices, voiceChoiceName, chooseVoice, voiceTest, stickHTML } from './ui.js';
 import { calibrationFlow, ensureMic, micErrorHTML } from './calib.js';
 import { runSession, STEP_ICON, STEP_NAME } from './session.js';
 
@@ -258,6 +258,10 @@ function settings(p, el) {
       <div class="setrow"><span class="lbl"><b>משטח</b><br><span class="muted small">משנה מסנן, טיק-טק, יעדי מהירות (כרית: 10% לאט יותר)</span></span>${seg('surface', [['pad', 'פד'], ['pillow', 'כרית / ספר']])}</div>
       <div class="setrow"><span class="lbl"><b>אוזניות</b><br><span class="muted small">עם אוזניות: צלילי עזרה בתחילת שלב, אין סינון טיק-טק</span></span>${seg('headphones', [[false, 'בלי'], [true, 'עם']])}</div>
       <div class="setrow"><span class="lbl"><b>קול המאמן</b>${hasHebrewVoice() ? '' : '<br><span class="small" style="color:var(--berry)">לא נמצא קול עברי במכשיר. הטקסט מוצג על המסך. באנדרואיד: התקינו "Google דיבור" עם עברית. באייפון זה מובנה.</span>'}</span>${seg('voice', [[true, 'פועל'], [false, 'כבוי']])}</div>
+      <div class="setrow"><span class="lbl"><b>קול</b><br><span class="muted small">אם המאמן שותק, בחרו קול אחר ולחצו "בדיקה". השמירה למכשיר הזה.</span></span>
+        <select id="voiceSel" class="field" style="font-size:16px;padding:8px 12px;max-width:260px;width:auto">${[['', 'אוטומטי'], ...hebrewVoices().map(v => [v.name, v.name + (v.localService ? '' : ' (רשת)')]), ['-', 'ללא בחירה (הדפדפן מחליט)']].map(([v, t]) => `<option value="${esc(v)}"${v === voiceChoiceName() ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>
+        <button class="btn" id="voiceTest">בדיקה</button></div>
+      <div id="voiceLog" class="small muted" style="white-space:pre-line;direction:rtl"></div>
       <div class="setrow"><span class="lbl"><b>מהירות דיבור</b></span>${seg('voiceRate', [[0.85, 'איטי'], [1, 'רגיל'], [1.15, 'מהיר']])}</div>
       <div class="setrow"><span class="lbl"><b>עוצמת טיק-טק</b></span><input type="range" id="vol" min="0.2" max="1" step="0.05" value="${S.volume}" style="flex:1;min-width:150px"></div>
     </div>
@@ -277,6 +281,8 @@ function settings(p, el) {
     let v = b.dataset.v; v = v === 'true' ? true : v === 'false' ? false : isNaN(+v) ? v : +v;
     S[sg.dataset.key] = v; store.save(); setVoice({ on: S.voice, rate: S.voiceRate }); audio.setProfile(S.surface); parents('settings');
   }));
+  $('#voiceSel').onchange = e => chooseVoice(e.target.value);
+  $('#voiceTest').onclick = () => { const log = $('#voiceLog'); log.textContent = ''; voiceTest(t => { log.textContent += (log.textContent ? '\n' : '') + t; }); };
   $('#vol').oninput = e => { S.volume = +e.target.value; audio.setVolume(S.volume); store.save(); };
   $('#recal').onclick = async () => { await audio.init(); await calibrationFlow(p, { fromParents: true }); parents('settings'); };
   $('#saveName').onclick = () => { const v = $('#rn').value.trim(); if (v) { p.name = v; store.save(); toast('נשמר'); } };

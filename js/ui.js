@@ -37,15 +37,17 @@ export function mood(m) { const el = $('#mascot'); if (el) { el.classList.remove
 // ---------- voice ----------
 let voiceCfg = { on: true, rate: 1 }, heVoice = null, lastLine = '';
 export function setVoice(cfg) { voiceCfg = { ...voiceCfg, ...cfg }; }
+// A voice the parent picked on this device ('' = automatic, '-' = none: let the browser choose by language).
+let voiceChoice = ''; try { voiceChoice = localStorage.getItem('ritmo-voice') || ''; } catch (e) {}
+export function hebrewVoices() { try { return speechSynthesis.getVoices().filter(v => /^(he|iw)/i.test(v.lang)); } catch (e) { return []; } }
+export function voiceChoiceName() { return voiceChoice; }
+export function chooseVoice(name) { voiceChoice = name; try { localStorage.setItem('ritmo-voice', name); } catch (e) {} pickVoice(); }
 function pickVoice() {
-  try {
-    const vs = speechSynthesis.getVoices();
-    const he = vs.filter(v => /^(he|iw)/i.test(v.lang));
-    heVoice = he.find(v => /female|carmit|google/i.test(v.name)) || he[0] || null;
-  } catch (e) { heVoice = null; }
+  const he = hebrewVoices();
+  heVoice = voiceChoice === '-' ? null : he.find(v => v.name === voiceChoice) || he.find(v => /female|carmit|google/i.test(v.name)) || he[0] || null;
 }
 try { pickVoice(); speechSynthesis.addEventListener('voiceschanged', pickVoice); } catch (e) {}
-export function hasHebrewVoice() { pickVoice(); return !!heVoice; }
+export function hasHebrewVoice() { return hebrewVoices().length > 0; }
 // Browsers refuse speech until the first tap on the page. Until then the line is only shown, and that tap speaks it.
 let speechLocked = !(navigator.userActivation?.hasBeenActive ?? true);
 export function stopSpeaking() { try { cancelSpeech(); } catch (e) {} const m = $('#mascot'); if (m) m.classList.remove('talking'); }
@@ -85,6 +87,23 @@ export function say(text, opts = {}) {
       else speak(); // synchronously, so iOS still counts it as part of the tap
     } catch (e) { finish(); }
   });
+}
+// Parents' voice test: speaks once and reports what the browser does, so a silent device can be diagnosed.
+export function voiceTest(report) {
+  if (!('speechSynthesis' in window)) return report('הדפדפן הזה לא תומך בדיבור.');
+  sayId++; cancelSpeech(); pickVoice();
+  const voices = speechSynthesis.getVoices();
+  report(`קולות בדפדפן: ${voices.length}, בעברית: ${hebrewVoices().length}. קול נבחר: ${heVoice ? heVoice.name + (heVoice.localService ? '' : ' (רשת)') : 'ללא (לפי שפה)'}`);
+  setTimeout(() => {
+    const u = new SpeechSynthesisUtterance('שלום! ככה נשמע המאמן.');
+    u.lang = 'he-IL'; if (heVoice) u.voice = heVoice; u.rate = voiceCfg.rate; u.pitch = 1.12;
+    let started = false;
+    u.onstart = () => { started = true; report('▶ התחיל לדבר'); };
+    u.onend = () => report(started ? '✓ סיים. שמעתם? אם לא, נסו קול אחר.' : '✗ הסתיים בלי להתחיל.');
+    u.onerror = e => report('✗ שגיאה: ' + (e.error || 'לא ידועה'));
+    utter = u; speechSynthesis.resume(); speechSynthesis.speak(u);
+    setTimeout(() => { if (!started) report(`✗ לא התחיל אחרי 4 שניות (speaking=${speechSynthesis.speaking}, pending=${speechSynthesis.pending}, paused=${speechSynthesis.paused})`); }, 4000);
+  }, 100);
 }
 let sayId = 0, utter = null, lastCancel = 0, waitedVoices = false;
 function cancelSpeech() { if (speechSynthesis.speaking || speechSynthesis.pending) lastCancel = Date.now(); speechSynthesis.cancel(); }
