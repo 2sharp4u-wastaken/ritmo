@@ -170,15 +170,30 @@ const WEAK_TXT = {
   double: 'המכה השנייה בדאבל חלשה', leftWeak: 'יד שמאל חלשה מימין', rightWeak: 'יד ימין חלשה משמאל', accent: 'אקצנט לא בולט', uneven: 'עוצמה לא אחידה',
 };
 
-function parents(tab) {
-  const p = store.active();
+// The drummer whose data the parents' area shows; switching here doesn't change who is drumming.
+let viewId = null;
+
+function parents(tab, id = viewId) {
+  const kids = store.all(), p = kids.find(k => k.id === id) || store.active() || kids[0];
+  viewId = p.id;
   render(`
     <div class="row"><button class="iconbtn" id="back" aria-label="חזרה">→</button><h2 class="grow">אזור הורים · ${esc(p.name)}</h2></div>
+    ${kids.length > 1 ? `<div class="ptabs" aria-label="מתופפים">${kids.map(k => `<button class="${k.id === p.id ? 'on' : ''}" data-kid="${k.id}" aria-pressed="${k.id === p.id}">${k.avatar} ${esc(k.name)}</button>`).join('')}</div>` : ''}
     <div class="ptabs" role="tablist">${[['overview', 'סקירה'], ['skills', 'מיומנויות'], ['history', 'היסטוריה'], ['settings', 'הגדרות'], ['about', 'איך זה עובד']].map(([k, t]) => `<button class="${k === tab ? 'on' : ''}" data-tab="${k}" role="tab" aria-selected="${k === tab}">${t}</button>`).join('')}</div>
     <div id="pbody" class="col"></div>`);
-  $('#back').onclick = home;
+  $('#back').onclick = () => { viewId = null; route(); };
+  $$('[data-kid]').forEach(b => b.onclick = () => parents(tab, b.dataset.kid));
   $$('[data-tab]').forEach(b => b.onclick = () => parents(b.dataset.tab));
   ({ overview, skills, history, settings, about }[tab])(p, $('#pbody'));
+}
+
+function familyHTML(cur) {
+  const kids = store.all(); if (kids.length < 2) return '';
+  const week = Array.from({ length: 7 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - i); return store.dayKey(d); });
+  return `<div class="card scroll"><h3 style="margin-bottom:8px">כל המתופפים</h3><table class="tbl"><thead><tr><th>מתופף</th><th>חגורה</th><th>שלב</th><th>דקות השבוע</th><th>רצף</th><th>ציון ממוצע</th><th>אימון אחרון</th></tr></thead><tbody>
+    ${kids.map(k => { const last = k.rounds.slice(-20), avg = last.length ? Math.round(last.reduce((a, r) => a + r.score, 0) / last.length) : '—', ls = k.sessions[k.sessions.length - 1];
+      return `<tr data-kid="${k.id}" style="cursor:pointer${k.id === cur.id ? ';font-weight:700' : ''}"><td>${k.avatar} ${esc(k.name)}</td><td>${esc(BELTS[store.beltIndex(k)].name)}</td><td>${store.allDone(k) ? 'סיים' : esc(store.currentSkill(k).title)}</td><td class="tnum">${Math.round(week.reduce((a, d) => a + (k.days[d] || 0), 0) / 60)}</td><td class="tnum">${store.streakAlive(k)}</td><td class="tnum">${avg}</td><td>${ls ? new Date(ls.ts).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' }) : '—'}</td></tr>`; }).join('')}
+    </tbody></table></div>`;
 }
 
 function overview(p, el) {
@@ -186,7 +201,7 @@ function overview(p, el) {
   const totalSec = Object.values(p.days).reduce((a, b) => a + b, 0);
   const last = p.rounds.slice(-20), avg = last.length ? Math.round(last.reduce((a, r) => a + r.score, 0) / last.length) : 0;
   const weak = Object.entries(p.weakTally).filter(([, v]) => v >= 1).sort((a, b) => b[1] - a[1]).slice(0, 3);
-  el.innerHTML = `
+  el.innerHTML = `${familyHTML(p)}
     <div class="kpis">
       <div class="kpi"><span>שלב נוכחי</span><b style="font-size:20px">${cur ? esc(cur.title) : 'סיים את המסלול'}</b><span>${cur ? `מהירות ${st.bpm || startOf(p, cur)} מתוך ${targetOf(p, cur)}` : ''}</span></div>
       <div class="kpi"><span>חגורה</span><b style="font-size:20px">${esc(BELTS[store.beltIndex(p)].name)}</b><span>${SKILLS.filter(s => store.skillState(p, s.id).mastered).length} מתוך ${SKILLS.length} שלבים</span></div>
@@ -198,6 +213,7 @@ function overview(p, el) {
     <div class="card col"><h3>על מה כדאי לשים לב</h3>
       ${weak.length ? weak.map(([k]) => `<div class="setrow"><span class="lbl"><b>${WEAK_TXT[k]}</b><br><span class="muted small">${esc(TIPS[k].say)}</span></span></div>`).join('') : '<p class="muted">עוד אין מספיק נתונים. אחרי כמה אימונים יופיעו כאן הדפוסים שחוזרים.</p>'}
       <p class="muted small">המאמן מכניס תרגיל ממוקד לאימון כשחולשה חוזרת על עצמה.</p></div>`;
+  el.querySelectorAll('[data-kid]').forEach(r => r.onclick = () => parents('overview', r.dataset.kid));
   scoreChart($('#c1'), p.rounds.slice(-50));
   daysChart($('#c2'), p);
 }
@@ -265,12 +281,12 @@ function settings(p, el) {
   $('#recal').onclick = async () => { await audio.init(); await calibrationFlow(p, { fromParents: true }); parents('settings'); };
   $('#saveName').onclick = () => { const v = $('#rn').value.trim(); if (v) { p.name = v; store.save(); toast('נשמר'); } };
   $('#savePass').onclick = async () => { const v = $('#np').value; if (v.length < 4) return toast('לפחות 4 תווים'); await store.setParentPass(v); $('#np').value = ''; toast('הסיסמה הוחלפה'); };
-  $('#addKid').onclick = () => { store.setActive(null); onboarding(undefined, p.id); };
-  $('#switch').onclick = () => { store.setActive(null); picker(); };
+  $('#addKid').onclick = () => { const back = store.active()?.id ?? p.id; viewId = null; store.setActive(null); onboarding(undefined, back); };
+  $('#switch').onclick = () => { viewId = null; store.setActive(null); picker(); };
   $('#exp').onclick = () => { const blob = new Blob([store.exportAll()], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `ritmo-backup-${store.dayKey()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); };
   $('#imp').onchange = async e => { const f = e.target.files[0]; if (!f) return; try { store.importAll(await f.text()); toast('הגיבוי נטען'); route(); } catch (err) { toast('הקובץ לא תקין'); } };
   $('#reset').onclick = async () => { if (await confirmBox(`לאפס את כל ההתקדמות של ${p.name}? הכיול וההגדרות יישמרו.`, 'לאפס')) { store.resetProgress(p); toast('אופס'); parents('overview'); } };
-  $('#del').onclick = async () => { if (await confirmBox(`למחוק את ${p.name} לגמרי?`, 'למחוק')) { store.remove(p.id); route(); } };
+  $('#del').onclick = async () => { if (await confirmBox(`למחוק את ${p.name} לגמרי?`, 'למחוק')) { store.remove(p.id); viewId = null; route(); } };
 }
 
 function about(p, el) {
