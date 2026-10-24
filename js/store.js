@@ -36,8 +36,19 @@ export function exportAll() { return JSON.stringify(db, null, 1); }
 export function importAll(text) {
   const d = JSON.parse(text);
   if (!d || !d.profiles) throw new Error('bad');
+  if (!d.parentPass && db.parentPass) d.parentPass = db.parentPass;
   db = d; save();
 }
+
+// Parents' area password: one per device, stored as a salted SHA-256 hash.
+async function hashPass(pw, salt) {
+  const data = new TextEncoder().encode(salt + ':' + pw);
+  if (globalThis.crypto?.subtle) return [...new Uint8Array(await crypto.subtle.digest('SHA-256', data))].map(b => b.toString(16).padStart(2, '0')).join('');
+  let h = 0x811c9dc5; for (const b of data) h = Math.imul(h ^ b, 0x01000193) >>> 0; return 'f' + h.toString(16);
+}
+export function hasParentPass() { return !!db.parentPass; }
+export async function setParentPass(pw) { const salt = Math.random().toString(36).slice(2, 10); db.parentPass = { salt, hash: await hashPass(pw, salt) }; save(); }
+export async function checkParentPass(pw) { return !!db.parentPass && await hashPass(pw, db.parentPass.salt) === db.parentPass.hash; }
 
 export function skillState(p, id) {
   if (!p.skills[id]) p.skills[id] = { bpm: null, best: 0, rounds: 0, lastTs: 0, mastered: false, masteredTs: 0, tests: [], recent: [], strength: 0 };

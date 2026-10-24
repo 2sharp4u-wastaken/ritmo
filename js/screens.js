@@ -144,13 +144,24 @@ export function home() {
 
 // ---------- parents ----------
 function parentGate() {
-  const a = 6 + Math.floor(Math.random() * 7), b = 12 + Math.floor(Math.random() * 8);
-  render(`<div class="card col"><h2>אזור הורים</h2><p>כדי להיכנס: כמה זה ${a} × ${b}?</p>
-    <input class="field tnum" id="ans" inputmode="numeric" autocomplete="off" aria-label="תשובה">
-    <div class="row"><button class="btn primary" id="ok">כניסה</button><button class="btn" id="back">חזרה</button></div><p class="muted small" id="msg"></p></div>`);
-  $('#ans').focus();
-  const go = () => { if (+$('#ans').value === a * b) parents('overview'); else $('#msg').textContent = 'לא נכון, נסו שוב.'; };
-  $('#ok').onclick = go; $('#ans').onkeydown = e => { if (e.key === 'Enter') go(); };
+  const first = !store.hasParentPass();
+  render(`<div class="card col"><h2>אזור הורים</h2>
+    <p>${first ? 'בחרו סיסמת הורים (לפחות 4 תווים). היא תישמר במכשיר הזה בלבד, כדאי לרשום אותה.' : 'הזינו את סיסמת ההורים:'}</p>
+    <input class="field" id="pw" type="password" autocomplete="${first ? 'new-password' : 'current-password'}" aria-label="סיסמה">
+    ${first ? '<input class="field" id="pw2" type="password" autocomplete="new-password" placeholder="שוב, לאימות" aria-label="אימות סיסמה">' : ''}
+    <div class="row"><button class="btn primary" id="ok">${first ? 'שמירה וכניסה' : 'כניסה'}</button><button class="btn" id="back">חזרה</button></div><p class="muted small" id="msg"></p></div>`);
+  $('#pw').focus();
+  const msg = t => { $('#msg').textContent = t; };
+  const go = async () => {
+    const pw = $('#pw').value;
+    if (first) {
+      if (pw.length < 4) return msg('הסיסמה צריכה לפחות 4 תווים.');
+      if (pw !== $('#pw2').value) return msg('הסיסמאות לא זהות.');
+      await store.setParentPass(pw); toast('הסיסמה נשמרה'); return parents('overview');
+    }
+    if (await store.checkParentPass(pw)) parents('overview'); else { msg('סיסמה שגויה, נסו שוב.'); $('#pw').value = ''; $('#pw').focus(); }
+  };
+  $('#ok').onclick = go; $$('.field').forEach(f => f.onkeydown = e => { if (e.key === 'Enter') go(); });
   $('#back').onclick = home;
 }
 
@@ -241,6 +252,8 @@ function settings(p, el) {
     <div class="card col"><h3>מתופפים</h3>
       <div class="row"><label for="rn" class="small">שם:</label><input id="rn" class="field" style="font-size:18px;max-width:220px;padding:8px 12px" value="${esc(p.name)}"><button class="btn" id="saveName">שמירה</button></div>
       <div class="row"><button class="btn" id="addKid">➕ הוספת מתופף</button><button class="btn" id="switch">החלפת מתופף</button></div></div>
+    <div class="card col"><h3>סיסמת הורים</h3>
+      <div class="row"><input id="np" class="field" type="password" autocomplete="new-password" placeholder="סיסמה חדשה" aria-label="סיסמה חדשה" style="font-size:18px;max-width:220px;padding:8px 12px"><button class="btn" id="savePass">החלפת סיסמה</button></div></div>
     <div class="card col"><h3>גיבוי</h3><p class="muted small">ההתקדמות נשמרת בדפדפן של המכשיר הזה. לגיבוי או להעברה למכשיר אחר:</p>
       <div class="row"><button class="btn" id="exp">ייצוא קובץ</button><label class="btn" for="imp">ייבוא קובץ</label><input type="file" id="imp" accept="application/json,.json" hidden></div></div>
     <div class="card col"><h3>איפוס</h3><div class="row"><button class="btn danger" id="reset">איפוס ההתקדמות של ${esc(p.name)}</button><button class="btn quiet" id="del">מחיקת המתופף</button></div></div>`;
@@ -251,6 +264,7 @@ function settings(p, el) {
   $('#vol').oninput = e => { S.volume = +e.target.value; audio.setVolume(S.volume); store.save(); };
   $('#recal').onclick = async () => { await audio.init(); await calibrationFlow(p, { fromParents: true }); parents('settings'); };
   $('#saveName').onclick = () => { const v = $('#rn').value.trim(); if (v) { p.name = v; store.save(); toast('נשמר'); } };
+  $('#savePass').onclick = async () => { const v = $('#np').value; if (v.length < 4) return toast('לפחות 4 תווים'); await store.setParentPass(v); $('#np').value = ''; toast('הסיסמה הוחלפה'); };
   $('#addKid').onclick = () => { store.setActive(null); onboarding(undefined, p.id); };
   $('#switch').onclick = () => { store.setActive(null); picker(); };
   $('#exp').onclick = () => { const blob = new Blob([store.exportAll()], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `ritmo-backup-${store.dayKey()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); };
