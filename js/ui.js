@@ -44,11 +44,11 @@ function pickVoice() {
     heVoice = he.find(v => /female|carmit|google/i.test(v.name)) || he[0] || null;
   } catch (e) { heVoice = null; }
 }
-try { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; } catch (e) {}
+try { pickVoice(); speechSynthesis.addEventListener('voiceschanged', pickVoice); } catch (e) {}
 export function hasHebrewVoice() { pickVoice(); return !!heVoice; }
 // Browsers refuse speech until the first tap on the page. Until then the line is only shown, and that tap speaks it.
 let speechLocked = !(navigator.userActivation?.hasBeenActive ?? true);
-export function stopSpeaking() { try { speechSynthesis.cancel(); } catch (e) {} const m = $('#mascot'); if (m) m.classList.remove('talking'); }
+export function stopSpeaking() { try { cancelSpeech(); } catch (e) {} const m = $('#mascot'); if (m) m.classList.remove('talking'); }
 
 // Shows the line in the bubble and speaks it. Resolves when finished (or a reading-time fallback).
 export function say(text, opts = {}) {
@@ -58,18 +58,41 @@ export function say(text, opts = {}) {
   if (opts.mood !== undefined) mood(opts.mood);
   const fallback = Math.min(9000, 900 + text.length * 55);
   if (!voiceCfg.on || speechLocked || !('speechSynthesis' in window)) return sleep(opts.wait === false ? 0 : Math.min(fallback, 2500));
-  pickVoice();
   return new Promise(res => {
     let done = false; const finish = () => { if (done) return; done = true; const m = $('#mascot'); if (m) m.classList.remove('talking'); res(); };
+    const mine = ++sayId;
+    const speak = () => {
+      if (mine !== sayId) return finish();
+      try {
+        pickVoice();
+        const u = new SpeechSynthesisUtterance(text.replace(/[>›]/g, ''));
+        u.lang = 'he-IL'; if (heVoice) u.voice = heVoice; u.rate = voiceCfg.rate; u.pitch = 1.12;
+        u.onend = finish; u.onerror = finish;
+        utter = u; // Chrome drops onend for utterances that get garbage-collected
+        const m = $('#mascot'); if (m) m.classList.add('talking');
+        speechSynthesis.resume(); // Chrome on Mac can get stuck paused and then speaks nothing
+        speechSynthesis.speak(u);
+        setTimeout(finish, fallback * 1.6 / voiceCfg.rate + 1500);
+      } catch (e) { finish(); }
+    };
     try {
-      speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text.replace(/[>›]/g, ''));
-      u.lang = 'he-IL'; if (heVoice) u.voice = heVoice; u.rate = voiceCfg.rate; u.pitch = 1.12;
-      u.onend = finish; u.onerror = finish;
-      const m = $('#mascot'); if (m) m.classList.add('talking');
-      speechSynthesis.speak(u);
-      setTimeout(finish, fallback * 1.6 / voiceCfg.rate + 1500);
+      // Chrome on Mac silently drops an utterance spoken right after cancel(), so give it a moment.
+      cancelSpeech();
+      const wait = Math.max(0, lastCancel + 80 - Date.now());
+      // Voices load late on Mac; without the Hebrew voice it reads with an English one, which says nothing.
+      if (!speechSynthesis.getVoices().length && !waitedVoices) voicesReady(1500).then(() => setTimeout(speak, wait));
+      else if (wait) setTimeout(speak, wait);
+      else speak(); // synchronously, so iOS still counts it as part of the tap
     } catch (e) { finish(); }
+  });
+}
+let sayId = 0, utter = null, lastCancel = 0, waitedVoices = false;
+function cancelSpeech() { if (speechSynthesis.speaking || speechSynthesis.pending) lastCancel = Date.now(); speechSynthesis.cancel(); }
+function voicesReady(ms) {
+  waitedVoices = true;
+  return new Promise(r => {
+    const t = setTimeout(r, ms);
+    try { speechSynthesis.addEventListener('voiceschanged', () => { clearTimeout(t); r(); }, { once: true }); } catch (e) { r(); }
   });
 }
 
