@@ -88,22 +88,39 @@ export function say(text, opts = {}) {
     } catch (e) { finish(); }
   });
 }
-// Parents' voice test: speaks once and reports what the browser does, so a silent device can be diagnosed.
-export function voiceTest(report) {
+// Parents' voice test: tries a few ways of speaking and reports what the browser does with each,
+// so a device that stays silent can be diagnosed.
+export async function voiceTest(report) {
   if (!('speechSynthesis' in window)) return report('הדפדפן הזה לא תומך בדיבור.');
-  sayId++; cancelSpeech(); pickVoice();
-  const voices = speechSynthesis.getVoices();
-  report(`קולות בדפדפן: ${voices.length}, בעברית: ${hebrewVoices().length}. קול נבחר: ${heVoice ? heVoice.name + (heVoice.localService ? '' : ' (רשת)') : 'ללא (לפי שפה)'}`);
-  setTimeout(() => {
-    const u = new SpeechSynthesisUtterance('שלום! ככה נשמע המאמן.');
-    u.lang = 'he-IL'; if (heVoice) u.voice = heVoice; u.rate = voiceCfg.rate; u.pitch = 1.12;
-    let started = false;
-    u.onstart = () => { started = true; report('▶ התחיל לדבר'); };
-    u.onend = () => report(started ? '✓ סיים. שמעתם? אם לא, נסו קול אחר.' : '✗ הסתיים בלי להתחיל.');
-    u.onerror = e => report('✗ שגיאה: ' + (e.error || 'לא ידועה'));
-    utter = u; speechSynthesis.resume(); speechSynthesis.speak(u);
-    setTimeout(() => { if (!started) report(`✗ לא התחיל אחרי 4 שניות (speaking=${speechSynthesis.speaking}, pending=${speechSynthesis.pending}, paused=${speechSynthesis.paused})`); }, 4000);
-  }, 100);
+  sayId++; pickVoice();
+  const he = hebrewVoices(), en = speechSynthesis.getVoices().find(v => /^en/i.test(v.lang) && v.localService) || null;
+  const state = () => `speaking=${speechSynthesis.speaking}, pending=${speechSynthesis.pending}, paused=${speechSynthesis.paused}`;
+  report(`${(navigator.userAgent.match(/(Chrome|Firefox|Version)\/[\d.]+/) || [''])[0]} · קולות: ${speechSynthesis.getVoices().length}, בעברית: ${he.map(v => v.name).join(', ') || 'אין'} · מצב: ${state()}`);
+  const heText = 'שלום! ככה נשמע המאמן.';
+  const tries = [
+    ['1. ' + (heVoice ? heVoice.name : 'בלי קול') + ' כמו באפליקציה', heText, heVoice, 'he-IL', 1.12],
+    ['2. ' + (he[0] ? he[0].name : 'בלי קול') + ' בגובה רגיל', heText, he[0] || null, 'he-IL', 1],
+    ['3. בלי קול, רק שפה עברית', heText, null, 'he-IL', 1],
+    ['4. אנגלית' + (en ? ' (' + en.name + ')' : ''), 'Hello, this is a test.', en, en ? en.lang : 'en-US', 1],
+  ];
+  for (const [label, text, voice, lang, pitch] of tries) {
+    if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
+    await sleep(400);
+    const res = await new Promise(done => {
+      let started = false;
+      const t = setTimeout(() => done(started ? '⏱ התחיל ולא סיים' : `✗ לא התחיל (${state()})`), 6000);
+      try {
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = lang; if (voice) u.voice = voice; u.rate = 1; u.pitch = pitch;
+        u.onstart = () => { started = true; };
+        u.onend = () => { clearTimeout(t); done(started ? '✓ התחיל וסיים' : '✗ הסתיים בלי להתחיל'); };
+        u.onerror = e => { clearTimeout(t); done('✗ שגיאה: ' + (e.error || '?')); };
+        utter = u; speechSynthesis.resume(); speechSynthesis.speak(u);
+      } catch (e) { clearTimeout(t); done('✗ ' + e.message); }
+    });
+    report(`${label}: ${res}`);
+  }
+  report('ספרו לנו באילו מהניסיונות שמעתם קול.');
 }
 let sayId = 0, utter = null, lastCancel = 0, waitedVoices = false;
 function cancelSpeech() { if (speechSynthesis.speaking || speechSynthesis.pending) lastCancel = Date.now(); speechSynthesis.cancel(); }

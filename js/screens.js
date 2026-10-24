@@ -282,7 +282,7 @@ function settings(p, el) {
     S[sg.dataset.key] = v; store.save(); setVoice({ on: S.voice, rate: S.voiceRate }); audio.setProfile(S.surface); parents('settings');
   }));
   $('#voiceSel').onchange = e => chooseVoice(e.target.value);
-  $('#voiceTest').onclick = () => { const log = $('#voiceLog'); log.textContent = ''; voiceTest(t => { log.textContent += (log.textContent ? '\n' : '') + t; }); };
+  $('#voiceTest').onclick = async e => { const btn = e.currentTarget, log = $('#voiceLog'); btn.disabled = true; log.textContent = ''; await voiceTest(t => { log.textContent += (log.textContent ? '\n' : '') + t; }); btn.disabled = false; };
   $('#vol').oninput = e => { S.volume = +e.target.value; audio.setVolume(S.volume); store.save(); };
   $('#recal').onclick = async () => { await audio.init(); await calibrationFlow(p, { fromParents: true }); parents('settings'); };
   $('#saveName').onclick = () => { const v = $('#rn').value.trim(); if (v) { p.name = v; store.save(); toast('נשמר'); } };

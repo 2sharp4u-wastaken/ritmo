@@ -1,5 +1,5 @@
 // Offline cache for the app shell. Bump VERSION on every release.
-const VERSION = 'ritmo-v6';
+const VERSION = 'ritmo-v7';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'onset-worklet.js', 'icons/icon-192.png', 'icons/icon-512.png',
   'js/main.js', 'js/audio.js', 'js/calib.js', 'js/coach.js', 'js/curriculum.js', 'js/grader.js', 'js/highway.js', 'js/screens.js', 'js/session.js', 'js/store.js', 'js/ui.js'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
