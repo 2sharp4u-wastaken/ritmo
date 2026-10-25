@@ -41,7 +41,7 @@ export function setVoice(cfg) { voiceCfg = { ...voiceCfg, ...cfg }; }
 let voiceChoice = ''; try { voiceChoice = localStorage.getItem('ritmo-voice') || ''; } catch (e) {}
 export function hebrewVoices() { try { return speechSynthesis.getVoices().filter(v => /^(he|iw)/i.test(v.lang)); } catch (e) { return []; } }
 export function voiceChoiceName() { return voiceChoice; }
-export function chooseVoice(name) { voiceChoice = name; try { localStorage.setItem('ritmo-voice', name); } catch (e) {} pickVoice(); }
+export function chooseVoice(name) { voiceChoice = name; speechDead = false; voiceMode = 0; try { localStorage.removeItem('ritmo-voice-mode'); } catch (e) {} try { localStorage.setItem('ritmo-voice', name); } catch (e) {} pickVoice(); }
 function pickVoice() {
   const he = hebrewVoices();
   heVoice = voiceChoice === '-' ? null : he.find(v => v.name === voiceChoice) || he.find(v => /female|carmit|google/i.test(v.name)) || he[0] || null;
@@ -50,7 +50,7 @@ try { pickVoice(); speechSynthesis.addEventListener('voiceschanged', pickVoice);
 export function hasHebrewVoice() { return hebrewVoices().length > 0; }
 // Browsers refuse speech until the first tap on the page. Until then the line is only shown, and that tap speaks it.
 let speechLocked = !(navigator.userActivation?.hasBeenActive ?? true);
-export function stopSpeaking() { try { cancelSpeech(); } catch (e) {} const m = $('#mascot'); if (m) m.classList.remove('talking'); }
+export function stopSpeaking() { sayId++; try { cancelSpeech(); } catch (e) {} const m = $('#mascot'); if (m) m.classList.remove('talking'); }
 
 // Shows the line in the bubble and speaks it. Resolves when finished (or a reading-time fallback).
 export function say(text, opts = {}) {
@@ -63,18 +63,32 @@ export function say(text, opts = {}) {
   return new Promise(res => {
     let done = false; const finish = () => { if (done) return; done = true; const m = $('#mascot'); if (m) m.classList.remove('talking'); res(); };
     const mine = ++sayId;
+    // Some browsers (Chrome on Mac) accept a line and then never start it. If it hasn't started
+    // in time, clear the stuck queue and retry with the next way of speaking; remember what works.
     const speak = () => {
       if (mine !== sayId) return finish();
+      if (speechDead) return sleep(Math.min(fallback, 2500)).then(finish);
+      let started = false, over = false, timer = 0;
+      const next = () => {
+        if (over || started || done) return; over = true; clearTimeout(timer);
+        try { speechSynthesis.cancel(); } catch (e) {}
+        if (mine !== sayId) return finish();
+        if (++voiceMode > 2) { voiceMode = savedMode(); speechDead = true; return finish(); }
+        setTimeout(speak, 150);
+      };
       try {
         pickVoice();
         const u = new SpeechSynthesisUtterance(text.replace(/[>›]/g, ''));
-        u.lang = 'he-IL'; if (heVoice) u.voice = heVoice; u.rate = voiceCfg.rate; u.pitch = 1.12;
-        u.onend = finish; u.onerror = finish;
+        u.lang = 'he-IL'; if (heVoice && voiceMode < 2) u.voice = heVoice; u.rate = voiceCfg.rate; u.pitch = voiceMode === 0 ? 1.12 : 1;
+        u.onstart = () => { started = true; if (voiceMode !== savedMode()) try { localStorage.setItem('ritmo-voice-mode', voiceMode); } catch (e) {} };
+        u.onend = () => { if (!over) finish(); };
+        u.onerror = e => { if (over) return; if (started || mine !== sayId || e.error === 'interrupted') finish(); else next(); };
         utter = u; // Chrome drops onend for utterances that get garbage-collected
         const m = $('#mascot'); if (m) m.classList.add('talking');
         speechSynthesis.resume(); // Chrome on Mac can get stuck paused and then speaks nothing
         speechSynthesis.speak(u);
-        setTimeout(finish, fallback * 1.6 / voiceCfg.rate + 1500);
+        setTimeout(() => { if (!started) next(); }, 2500);
+        timer = setTimeout(() => { if (!over) finish(); }, fallback * 1.6 / voiceCfg.rate + 1500);
       } catch (e) { finish(); }
     };
     try {
@@ -92,7 +106,7 @@ export function say(text, opts = {}) {
 // so a device that stays silent can be diagnosed.
 export async function voiceTest(report) {
   if (!('speechSynthesis' in window)) return report('הדפדפן הזה לא תומך בדיבור.');
-  sayId++; pickVoice();
+  sayId++; pickVoice(); speechDead = false;
   const he = hebrewVoices(), en = speechSynthesis.getVoices().find(v => /^en/i.test(v.lang) && v.localService) || null;
   const state = () => `speaking=${speechSynthesis.speaking}, pending=${speechSynthesis.pending}, paused=${speechSynthesis.paused}`;
   report(`${(navigator.userAgent.match(/(Chrome|Firefox|Version)\/[\d.]+/) || [''])[0]} · קולות: ${speechSynthesis.getVoices().length}, בעברית: ${he.map(v => v.name).join(', ') || 'אין'} · מצב: ${state()}`);
@@ -122,7 +136,10 @@ export async function voiceTest(report) {
   }
   report('ספרו לנו באילו מהניסיונות שמעתם קול.');
 }
-let sayId = 0, utter = null, lastCancel = 0, waitedVoices = false;
+let sayId = 0, utter = null, lastCancel = 0, waitedVoices = false, speechDead = false;
+// How to speak: 0 = Hebrew voice, raised pitch; 1 = Hebrew voice, normal pitch; 2 = no voice, only lang.
+const savedMode = () => { try { return Math.min(2, +localStorage.getItem('ritmo-voice-mode') || 0); } catch (e) { return 0; } };
+let voiceMode = savedMode();
 function cancelSpeech() { if (speechSynthesis.speaking || speechSynthesis.pending) lastCancel = Date.now(); speechSynthesis.cancel(); }
 function voicesReady(ms) {
   waitedVoices = true;
