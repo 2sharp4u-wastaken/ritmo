@@ -87,6 +87,7 @@ export function say(text, opts = {}) {
         const m = $('#mascot'); if (m) m.classList.add('talking');
         speechSynthesis.resume(); // Chrome on Mac can get stuck paused and then speaks nothing
         speechSynthesis.speak(u);
+        setTimeout(() => { if (!started && !over) unstick(); }, 700);
         setTimeout(() => { if (!started) next(); }, 2500);
         timer = setTimeout(() => { if (!over) finish(); }, fallback * 1.6 / voiceCfg.rate + 1500);
       } catch (e) { finish(); }
@@ -121,13 +122,14 @@ export async function voiceTest(report) {
     if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
     await sleep(400);
     const res = await new Promise(done => {
-      let started = false;
+      let started = false, kicked = false;
       const t = setTimeout(() => done(started ? '⏱ התחיל ולא סיים' : `✗ לא התחיל (${state()})`), 6000);
+      setTimeout(() => { if (!started) kicked = unstick(); }, 700);
       try {
         const u = new SpeechSynthesisUtterance(text);
         u.lang = lang; if (voice) u.voice = voice; u.rate = 1; u.pitch = pitch;
         u.onstart = () => { started = true; };
-        u.onend = () => { clearTimeout(t); done(started ? '✓ התחיל וסיים' : '✗ הסתיים בלי להתחיל'); };
+        u.onend = () => { clearTimeout(t); done(started ? '✓ התחיל וסיים' + (kicked ? ' (אחרי שחרור התור)' : '') : '✗ הסתיים בלי להתחיל'); };
         u.onerror = e => { clearTimeout(t); done('✗ שגיאה: ' + (e.error || '?')); };
         utter = u; speechSynthesis.resume(); speechSynthesis.speak(u);
       } catch (e) { clearTimeout(t); done('✗ ' + e.message); }
@@ -140,7 +142,12 @@ let sayId = 0, utter = null, lastCancel = 0, waitedVoices = false, speechDead = 
 // How to speak: 0 = Hebrew voice, raised pitch; 1 = Hebrew voice, normal pitch; 2 = no voice, only lang.
 const savedMode = () => { try { return Math.min(2, +localStorage.getItem('ritmo-voice-mode') || 0); } catch (e) { return 0; } };
 let voiceMode = savedMode();
-function cancelSpeech() { if (speechSynthesis.speaking || speechSynthesis.pending) lastCancel = Date.now(); speechSynthesis.cancel(); }
+function cancelSpeech() { if (speechSynthesis.speaking || speechSynthesis.pending) { lastCancel = Date.now(); speechSynthesis.cancel(); } }
+// Chrome on Mac holds a new line in its own queue while the system synthesizer still reports "speaking"
+// (it lingers after cancel(), or stays so after a blank utterance), and only frees it on resume from a
+// pause. Nothing is playing then, so pause() + resume() lets the line through. Both run in one task, so
+// speaking can't change in between and leave Chrome paused.
+function unstick() { try { if (speechSynthesis.speaking && !speechSynthesis.paused) { speechSynthesis.pause(); speechSynthesis.resume(); return true; } } catch (e) {} return false; }
 function voicesReady(ms) {
   waitedVoices = true;
   return new Promise(r => {
@@ -180,7 +187,8 @@ export function confirmBox(text, yes = 'כן', no = 'ביטול') {
 
 // A tap that lands while the coach is still talking is remembered, and cuts the speech.
 document.addEventListener('click', e => {
-  if (speechLocked) { speechLocked = false; if (lastLine) say(lastLine); else try { speechSynthesis.speak(new SpeechSynthesisUtterance(' ')); } catch (err) {} }
+  // Safari needs something spoken inside the tap; Chrome only needs the tap, and on Mac a blank line wedges its speech.
+  if (speechLocked) { speechLocked = false; if (lastLine) say(lastLine); else if (!/Chrome\//.test(navigator.userAgent)) try { speechSynthesis.speak(new SpeechSynthesisUtterance(' ')); } catch (err) {} }
   const b = e.target.closest('button'); if (b) { b.dataset.pressed = '1'; if (b.id === 'play' || b.id === 'next' || b.id === 'go') stopSpeaking(); } }, true);
 
 // ---------- wake lock ----------
